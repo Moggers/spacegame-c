@@ -36,7 +36,7 @@ void main() {
 		}
 	}
 	if(selectionMap[instanceId] != 0) {
-		outColor = (vec4(dot(fragNorm, vec3(0,0,1)) * fragColor, 1.0) * vec4(2,1,1,1) + 0.2) / 1.2;
+		outColor = (vec4(dot(fragNorm, vec3(0,0,1)) * fragColor * 0.2 + vec3(0.1, 0.1, 0.4), 1.0) + 0.2 ) / 1.2 ;
 	} else {
 		outColor = (vec4(dot(fragNorm, vec3(0,0,1)) * fragColor, 1.0) + 0.2 ) / 1.2 ;
 	}
