@@ -1,0 +1,11 @@
+dist
+node_modules
+yarn-error.log
+a.out
+**/*.spv
+.ccls-cache
+*.swp
+.vs
+build/
+.clangd/
+vktrace_out.vktrace

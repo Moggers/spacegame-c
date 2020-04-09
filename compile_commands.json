@@ -1,0 +1,8 @@
+[
+  {
+    "directory": "/home/matthew/git/opendom/build",
+    "command": "cc -Imain@exe -I. -I.. -I/usr/../include/include -fdiagnostics-color=always -pipe -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=c99 -g -MD -MQ 'main@exe/src_main.c.o' -MF 'main@exe/src_main.c.o.d' -o 'main@exe/src_main.c.o' -c ../src/main.c",
+    "file": "../src/main.c",
+    "output": "main@exe/src_main.c.o"
+  }
+]
