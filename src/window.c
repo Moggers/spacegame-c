@@ -260,16 +260,7 @@ void UpdateInputState(GraphicsState *state) {
   if ((state->input->mouseButtons & 2) == 0) {
     state->input->mouse[2] = state->input->mouse[0];
     state->input->mouse[3] = state->input->mouse[1];
-  } else {
-
-    // Clear buffers
-    /* TODO: Moving this to happen within the pipeline
-memset(state->input->selectionBuffer, 0,
-sizeof(state->input->selectionBuffer));
-memset(state->input->selectionMap, 0, sizeof(state->input->selectionMap));
-state->input->selectionBufferLength = 0;
-    */
-  }
+  } 
 }
 
 void UploadModel(GraphicsState *state, Model *model) {
@@ -992,6 +983,8 @@ GraphicsState InitGraphics() {
                &state.inputBuffer, &state.inputMemory);
   printf("%d\n", vkMapMemory(device, state.inputMemory, 0, VK_WHOLE_SIZE, 0,
                              (void **)&state.input));
+	memset(state.input->selectionBuffer, 0, sizeof(state.input->selectionBuffer));
+	memset(state.input->selectionMap, 0, sizeof(state.input->selectionMap));
 
   glm_mat4_identity_array(&state.camera->model, 3);
   CreateRenderState(&state);
