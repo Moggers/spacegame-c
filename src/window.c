@@ -31,7 +31,8 @@ typedef struct InputState {
   vec2 windowSize;
   uint32_t mouseButtons;
   uint32_t selectionBufferLength;
-	uint32_t frameId; // Rolling frame timestamp for determining how recently a selection occurred
+  uint32_t frameId; // Rolling frame timestamp for determining how recently a
+                    // selection occurred
   char selectionMap[4096];
   char selectionBuffer[256];
 } InputState;
@@ -84,7 +85,6 @@ typedef struct GraphicsState {
   VkCommandBuffer entitySyncCommandBuffer;
   VkCommandBuffer inputReadCommandBuffer;
   bool commandBufferDirty;
-  bool entitiesSyncing;
   CameraState *camera;
   InputState *input;
 } GraphicsState;
@@ -126,14 +126,8 @@ uint32_t *getQueuesMatching(VkPhysicalDevice physicalDevice, VkQueueFlags flags,
   return queueIds;
 }
 
-void SetupCommandBuffer(
-    GraphicsState *state, int frameNumber,
-    /*
-     * VkCommandBuffer commandbuffer, VkRenderPass renderpass,
-            VkPipeline graphicsPipelines[2],
-            VkFramebuffer framebuffer, VkPipelineLayout layout,
-            VkDescriptorSet descriptorSet, VkExtent2D extent,*/
-    EntityDef *entities, uint32_t entityCount) {
+void SetupCommandBuffer(GraphicsState *state, int frameNumber,
+                        EntityDef *entities, uint32_t entityCount) {
   vkBeginCommandBuffer(state->commandbuffers[frameNumber],
                        &(VkCommandBufferBeginInfo){
                            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -234,11 +228,11 @@ void UpdateInputState(GraphicsState *state) {
 
   state->input->windowSize[0] = state->renderArea.width;
   state->input->windowSize[1] = state->renderArea.height;
-	if(state->input->frameId == 15) {
-		state->input->frameId = 1;
-	} else {
-		state->input->frameId++;
-	}
+  if (state->input->frameId == 15) {
+    state->input->frameId = 1;
+  } else {
+    state->input->frameId++;
+  }
 
   // Buttons
   uint32_t mouseButtons =
@@ -260,10 +254,19 @@ void UpdateInputState(GraphicsState *state) {
   if ((state->input->mouseButtons & 2) == 0) {
     state->input->mouse[2] = state->input->mouse[0];
     state->input->mouse[3] = state->input->mouse[1];
-  } 
+  }
 }
 
-void UploadModel(GraphicsState *state, Model *model) {
+/**
+ * Upload a correctly formed Model to the graphics card.
+ * Will create a buffer, and load vertices onto it, success
+ * will return code 0.
+ *
+ * Only one model may be loaded at a time, attempting to load two models
+ * syncronously will attempt to block for 1000 milliseconds and then return
+ * the code 1.
+ */
+uint32_t UploadModel(GraphicsState *state, Model *model) {
   VkCommandBuffer commandBuffer;
   vkAllocateCommandBuffers(
       state->device,
@@ -274,7 +277,6 @@ void UploadModel(GraphicsState *state, Model *model) {
           .commandBufferCount = 1},
       &commandBuffer);
   VkQueue queue;
-  // TODO: We're probably doubling up our transfers on the graphics queue
   vkGetDeviceQueue(
       state->device,
       getQueuesMatching(state->physicalDevice, VK_QUEUE_TRANSFER_BIT, 0)[0], 0,
@@ -285,31 +287,33 @@ void UploadModel(GraphicsState *state, Model *model) {
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
       &model->vertexBuffer, &model->vertexMemory);
 
-  vkWaitForFences(state->device, 1, &state->stagingFence, 1, 0);
-  {
-    vkResetFences(state->device, 1, &state->stagingFence);
-    void *pp;
-    vkMapMemory(state->device, state->stagingMemory, 0, VK_WHOLE_SIZE, 0, &pp);
-    memcpy(pp, model->vertices, sizeof(Vertex) * model->vertexCount);
-    vkUnmapMemory(state->device, state->stagingMemory);
-    vkBeginCommandBuffer(
-        commandBuffer,
-        &(VkCommandBufferBeginInfo){
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO});
-    vkCmdCopyBuffer(
-        commandBuffer, state->stagingBuffer, model->vertexBuffer, 1,
-        &(VkBufferCopy){.srcOffset = 0,
-                        .dstOffset = 0,
-                        .size = sizeof(Vertex) * model->vertexCount});
-    vkEndCommandBuffer(commandBuffer);
-    vkQueueSubmit(queue, 1,
-                  &(VkSubmitInfo){.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                  .waitSemaphoreCount = 0,
-                                  .commandBufferCount = 1,
-                                  .pCommandBuffers = &commandBuffer,
-                                  .signalSemaphoreCount = 0},
-                  state->stagingFence);
+  void *pp;
+  vkMapMemory(state->device, state->stagingMemory, 0, VK_WHOLE_SIZE, 0, &pp);
+  memcpy(pp, model->vertices, sizeof(Vertex) * model->vertexCount);
+  vkUnmapMemory(state->device, state->stagingMemory);
+  vkBeginCommandBuffer(
+      commandBuffer, &(VkCommandBufferBeginInfo){
+                         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO});
+  vkCmdCopyBuffer(commandBuffer, state->stagingBuffer, model->vertexBuffer, 1,
+                  &(VkBufferCopy){.srcOffset = 0,
+                                  .dstOffset = 0,
+                                  .size = sizeof(Vertex) * model->vertexCount});
+  vkEndCommandBuffer(commandBuffer);
+  vkQueueSubmit(queue, 1,
+                &(VkSubmitInfo){.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                                .waitSemaphoreCount = 0,
+                                .commandBufferCount = 1,
+                                .pCommandBuffers = &commandBuffer,
+                                .signalSemaphoreCount = 0},
+                state->stagingFence);
+  uint32_t res = vkGetFenceStatus(state->device, state->stagingFence);
+  res = vkWaitForFences(state->device, 1, &state->stagingFence, 1, 1000000);
+  if (res == VK_TIMEOUT) {
+    printf("Timed out waiting for model loading fence to signal\n");
+    return 1;
   }
+  vkResetFences(state->device, 1, &state->stagingFence);
+  return 0;
 }
 
 uint32_t CreateEntityDef(GraphicsState *state, Model *model) {
@@ -356,15 +360,6 @@ uint32_t UpdateGraphicsMemory(GraphicsState *state) {
         state->device,
         &(VkFenceCreateInfo){.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO},
         NULL, &state->entitySyncFence);
-  }
-  if (state->entitiesSyncing) {
-    VkResult res =
-        vkWaitForFences(state->device, 1, &state->entitySyncFence, VK_TRUE, 0);
-    if (res == VK_TIMEOUT) {
-      return 1;
-    }
-    vkResetFences(state->device, 1, &state->entitySyncFence);
-    state->entitiesSyncing = false;
   }
   // Reset command buffer/create new command buffer
   if (!state->entitySyncCommandBuffer) {
@@ -424,7 +419,13 @@ uint32_t UpdateGraphicsMemory(GraphicsState *state) {
                       .commandBufferCount = 1,
                       .pCommandBuffers = &state->entitySyncCommandBuffer},
       state->entitySyncFence);
-  state->entitiesSyncing = true;
+  VkResult res = vkWaitForFences(state->device, 1, &state->entitySyncFence,
+                                 VK_TRUE, 10000000);
+  if (res == VK_TIMEOUT) {
+    printf("Timed out waiting for graphics update fence\n");
+    return 1;
+  }
+  vkResetFences(state->device, 1, &state->entitySyncFence);
   return 0;
 }
 
@@ -983,8 +984,8 @@ GraphicsState InitGraphics() {
                &state.inputBuffer, &state.inputMemory);
   printf("%d\n", vkMapMemory(device, state.inputMemory, 0, VK_WHOLE_SIZE, 0,
                              (void **)&state.input));
-	memset(state.input->selectionBuffer, 0, sizeof(state.input->selectionBuffer));
-	memset(state.input->selectionMap, 0, sizeof(state.input->selectionMap));
+  memset(state.input->selectionBuffer, 0, sizeof(state.input->selectionBuffer));
+  memset(state.input->selectionMap, 0, sizeof(state.input->selectionMap));
 
   glm_mat4_identity_array(&state.camera->model, 3);
   CreateRenderState(&state);
@@ -1035,7 +1036,11 @@ void ReadInputData(GraphicsState *state) {
                       .commandBufferCount = 1,
                       .pCommandBuffers = &state->inputReadCommandBuffer},
       state->inputReadFence);
-  vkWaitForFences(state->device, 1, &state->inputReadFence, 1, 10000);
+  uint32_t res =
+      vkWaitForFences(state->device, 1, &state->inputReadFence, 1, 1000000);
+  if (res == VK_TIMEOUT) {
+    printf("Input data timeout\n");
+  }
   vkResetFences(state->device, 1, &state->inputReadFence);
   InputState *dat;
   vkMapMemory(state->device, state->stagingInputMemory, 0, sizeof(InputState),
@@ -1094,12 +1099,12 @@ void DrawGraphics(GraphicsState *state) {
     }
     state->commandBufferDirty = false;
   }
-  state->imageId = (state->imageId + 1) % (state->imageCount + 1);
+  uint32_t image_index = (state->imageId + 1) % (state->imageCount + 1);
 
   uint32_t imageId;
   VkResult result = vkAcquireNextImageKHR(
       state->device, state->swapchain, 1e8,
-      state->imageReadySemaphores[state->imageId], VK_NULL_HANDLE, &imageId);
+      state->imageReadySemaphores[image_index], VK_NULL_HANDLE, &imageId);
   VkQueue queue;
   vkGetDeviceQueue(
       state->device,
@@ -1120,10 +1125,6 @@ void DrawGraphics(GraphicsState *state) {
     printf("Failure to fetch image err: %d.. Returning\n", result);
     return;
   }
-
-  vkWaitForFences(state->device, 1, &state->imageReadyFences[imageId], 1,
-                  100000);
-  vkResetFences(state->device, 1, &state->imageReadyFences[imageId]);
   vkQueueSubmit(
       queue, 1,
       &(VkSubmitInfo){
@@ -1131,7 +1132,7 @@ void DrawGraphics(GraphicsState *state) {
           .commandBufferCount = 1,
           .pCommandBuffers = &state->commandbuffers[imageId],
           .waitSemaphoreCount = 1,
-          .pWaitSemaphores = &state->imageReadySemaphores[state->imageId],
+          .pWaitSemaphores = &state->imageReadySemaphores[image_index],
           .signalSemaphoreCount = 1,
           .pSignalSemaphores = &state->renderFinishedSemaphores[imageId],
           .pWaitDstStageMask =
@@ -1146,4 +1147,11 @@ void DrawGraphics(GraphicsState *state) {
                                      &state->renderFinishedSemaphores[imageId],
                                  .pSwapchains = &state->swapchain,
                                  .pImageIndices = &imageId});
+  VkResult res = vkWaitForFences(state->device, 1,
+                                 &state->imageReadyFences[imageId], 1, 100000);
+  if (res == VK_TIMEOUT) {
+    printf("Graphics overloaded, not ready to draw frame\n");
+  }
+  vkResetFences(state->device, 1, &state->imageReadyFences[imageId]);
+  state->imageId = image_index;
 }
